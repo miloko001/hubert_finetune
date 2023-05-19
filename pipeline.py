@@ -31,8 +31,8 @@ def load_data():
     global device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    train_dataset = load_dataset("csv",data_files="./data/train_5hr.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t")
-    valid_dataset = load_dataset("csv",data_files="./data/dev.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t")
+    train_dataset = load_dataset("csv",data_files="./data/train_460.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t", cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
+    valid_dataset = load_dataset("csv",data_files="./data/dev.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t",cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
 
         
 

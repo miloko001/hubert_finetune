@@ -164,17 +164,17 @@ if __name__ == "__main__":
     
 
     training_args = TrainingArguments(
-        output_dir ="hubert_ft/5hr",
+        output_dir ="hubert_ft/460hr",
         per_device_train_batch_size=8,
         evaluation_strategy="steps",
-        num_train_epochs=50,
+        num_train_epochs=2,
         fp16=True,
         gradient_checkpointing=True,
         save_steps=1000,
-        eval_steps=500,
-        logging_steps=10,
-        learning_rate=1e-5,
-        warmup_steps=10,
+        eval_steps=1000,
+        logging_steps=100,
+        learning_rate=5e-5,
+        warmup_steps=2000,
         save_total_limit=2,
         report_to="wandb",
         run_name="hubert_finetuning",
