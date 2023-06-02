@@ -15,6 +15,8 @@ import os
 import soundfile as sf
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
+import glob
+import re
 
 def compute_metrics(pred):
     pred_logits = pred.predictions
@@ -27,10 +29,30 @@ def compute_metrics(pred):
     label_str = processor.batch_decode(pred.label_ids,group_tokens=False,spaces_between_special_tokens=True)
 
     wer = wer_metric.compute(predictions=pred_str, references=label_str)
+
+    speakers = ["01MBF","02MBF","03MBM","04MSF","05ENF","06ENM","07ENF","08MBM","09ENF","11MBF","12MSF",\
+            "14MSF","15ENM","16ENM","17ENF","18ENF","19ENM","20MBF","21ENF","22MBF","24MSF","25MSM","26MSM",\
+            "27MSM","28ENF","29MBM","30MSM","31MBM","32ENM","33ENM","34ENM","35ENM","36ENF","37ENF","38ENM","39ENM","40ENF"]
+
+    corr_layer_ = []
+    max_corr_ = []
+    max_corr_layer_ = []
+    for s in speakers:
+        corr_layer = mae_probe(s)
+        corr_layer_.append(corr_layer)
+    a = np.mean(np.vstack(corr_layer_),axis=0) 
+            
+    best_probe_layer = np.argmax(a)
+    best_probe_value = np.max(a)
+
+    fig,ax = plt.subplots(1,1,figsize=(12,8))
+
+    plt.plot(a)
+    ax.set_ylabel("Correlation")
+    ax.set_xlabel("Layer")
+    wandb.log({"Layer-wise Correlation":fig})
     
-    best_probe,layer = probe()
-    
-    return {"wer": wer,"best_probe_value":best_probe,"best_probe_layer":layer}
+    return {"WER": wer,"Best Avg Correlation":best_probe_value,"Best Layer":best_probe_layer}
 
 def corr_calc(pred,gt):
 
@@ -46,7 +68,7 @@ def remove_3D_data(y):
     return twod_y
 
 
-def probe():
+def mae_probe(speaker):
     
     features = {}
 
@@ -56,48 +78,55 @@ def probe():
         return hook
 
     for i,layer in enumerate(model.base_model.encoder.layers): 
-        print(f"{i}")
         layer.register_forward_hook(get_features(f'{i} feats'))
 
 
-    med = "./eval/medina/truewav/"
-    ema_path = "./eval/medina/truema/"
-    
-    files = os.listdir(med)
+    files = glob.glob(f"../probing/mae/{speaker}/split_wav/*")
+    files = [f for f in files if "Words" not in f]                                                                                                                                                 
+    comma = [f for f in files if "Comma" in f]                                                                                                                                                     
+    bamboo = [f for f in files if "Bamboo" in f]                                                                                                                                                   
+    caterpillar = [f for f in files if "Caterpillar" in f]                                                                                                                                         
+    sents = [f for f in files if "Sents2" in f or "Sents3" in f]                                                                                                                                   
+    passages = comma + bamboo + caterpillar + sents                                                                                                                                                
+    train = [f for f in files if f not in passages]
+    test = [f for f in files if f in passages]
+    mu = np.load(f"../probing/mae/{speaker}/ema_mean.npy")
+    std = np.load(f"../probing/mae/{speaker}/ema_std.npy")        
 
-    train = files[:100]
-    test = files[-100:]
+    ema_path = f"../probing/mae/{speaker}/split_ema/"
     coefs = []
-    em = {}
+    em = []
     hst = {}
 
-    for i in range(23):
-        em[f"{i}"] = []
+    for i in range(24):
+        hst[f"{i}"] = []
         hst[f"{i}"] = []
 
     for f in tqdm(train):
-        data,samplerate = sf.read(med+f)
-        art = remove_3D_data(np.load(f"{ema_path}{f[:-4]}.npy"))
+        data,samplerate = sf.read(f)
+        ema_path = re.sub("split_wav","split_ema",f)
+        art = np.load(f"{ema_path[:-4]}.npy")
         input_values = processor(data,sampling_rate=samplerate,return_tensors="pt").input_values.to(device)
         hidden_states = model(input_values).logits
         
-        for l in range(23):
+        
+        for l in range(24):
             hstates = features[f"{l} feats"].squeeze()
+            
+            if l ==0:
+                if np.size(art,0)!=np.size(hstates,0):
+                    art = art[:np.size(hstates,0)]
+                
+                em.append(art)
 
-            if np.size(art,0)!=np.size(hstates,0):
-                art = art[:np.size(hstates,0)]
     
-            em[f"{l}"].append(art)
             hst[f"{l}"].append(hstates)
-    
-    mu = remove_3D_data(np.expand_dims(np.load("./eval/medina/medina_mean.npy"),axis=0))
-    std = remove_3D_data(np.expand_dims(np.load("./eval/medina/medina_std.npy"),axis=0))
+    ema = np.concatenate(em,axis=0)[:15000]
+    ema = (ema-mu)/std
 
-    for i in tqdm(range(23)):
-        ema = np.concatenate(em[f"{i}"],axis=0)
-        ema = (ema-mu)/std
+    for i in tqdm(range(24)):
 
-        feats = np.concatenate(hst[f"{i}"],axis=0)
+        feats = np.concatenate(hst[f"{i}"],axis=0)[:15000]
         est = LinearRegression(fit_intercept=False).fit(feats,ema)
 
         coefs.append(est.coef_)
@@ -105,17 +134,18 @@ def probe():
 
     corrs = {}
 
-    for i in range(23):
+    for i in range(24):
         corrs[f"{i}"] = []
 
     for f in tqdm(test):
-        data, samplerate = sf.read(med+f)
-        art = remove_3D_data(np.load(f"{ema_path}{f[:-4]}.npy"))
+        data, samplerate = sf.read(f)
+        ema_path = re.sub("split_wav","split_ema",f)
+        art = np.load(f"{ema_path[:-4]}.npy")
 
         input_values = processor(data,sampling_rate=samplerate,return_tensors="pt").input_values.to(device)
         hidden_states = model(input_values).logits
         
-        for l in range(23):
+        for l in range(24):
 
             hstates = features[f"{l} feats"].squeeze()
             pred = np.matmul(hstates,coefs[l].T)
@@ -126,25 +156,13 @@ def probe():
 
             corrs[f"{l}"].append(corr_calc(pred,gt))
 
-    corr_final = []
+    layer_corr = []
 
-    for i in range(23):
-            corr_final.append(np.mean(corrs[f"{i}"]))
-    
-    fig,ax =plt.subplots()
+    for i in range(24):
+            layer_corr.append(np.mean(corrs[f"{i}"]))
+        
 
-    ax.plot(corr_final)
-    ax.set_ylabel("Correlation")
-    ax.set_xlabel("Layer")
-    wandb.log({"Probe Performance":fig})
-
-    probe = np.max(corr_final)
-    layer = np.argmax(corr_final)
-    
-
-    return probe,layer
-
-
+    return layer_corr
 
 if __name__ == "__main__":
     transformers.logging.set_verbosity_info()
@@ -161,23 +179,23 @@ if __name__ == "__main__":
     
 
     model.freeze_feature_encoder()
-    
+    #os.environ["WANDB_DISABLED"] = "true"    
 
     training_args = TrainingArguments(
-        output_dir ="hubert_ft/460hr",
-        per_device_train_batch_size=8,
+        output_dir ="hubert_ft/test",
+        per_device_train_batch_size=16,
         evaluation_strategy="steps",
         num_train_epochs=2,
         fp16=True,
         gradient_checkpointing=True,
         save_steps=1000,
-        eval_steps=1000,
+        eval_steps=1,
         logging_steps=100,
-        learning_rate=5e-5,
-        warmup_steps=2000,
+        learning_rate=1e-4,
+        warmup_steps=1500,
         save_total_limit=2,
-        report_to="wandb",
-        run_name="hubert_finetuning",
+        #report_to="wandb",
+        #run_name="hubert_finetuning",
         push_to_hub=False)
     
     trainer = Trainer(

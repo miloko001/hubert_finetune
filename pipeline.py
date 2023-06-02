@@ -31,9 +31,11 @@ def load_data():
     global device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    train_dataset = load_dataset("csv",data_files="./data/train_460.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t", cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
-    valid_dataset = load_dataset("csv",data_files="./data/dev.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t",cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
+    #train_dataset = load_dataset("csv",data_files="./data/train_1spk.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t", cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
+    #valid_dataset = load_dataset("csv",data_files="./data/dev_1spk.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t",cache_dir="/scratch/cgm43/AAI/hubert_finetune/cache")
 
+    train_dataset = load_dataset("csv",data_files="./data/train_1spk.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t")
+    valid_dataset = load_dataset("csv",data_files="./data/dev_1spk.csv",column_names = ["path","spk","stime","etime","perceived","target"],delimiter="\t")
         
 
     tokenizer = Wav2Vec2CTCTokenizer("./vocab.json", unk_token="UNK", pad_token="PAD", word_delimiter_token="",padding="longest")    
